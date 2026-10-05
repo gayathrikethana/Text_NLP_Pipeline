@@ -1,0 +1,204 @@
+{
+  "name": "news_nlp_batch_pipeline",
+  "properties": {
+    "description": "Nightly batch workflow: validate silver data → run Databricks gold aggregation → refresh Azure AI Search index",
+    "activities": [
+      {
+        "name": "ValidateSilverData",
+        "description": "Check that the silver layer contains data before starting gold aggregation",
+        "type": "GetMetadata",
+        "dependsOn": [],
+        "policy": {
+          "timeout": "0.00:05:00",
+          "retry": 1
+        },
+        "typeProperties": {
+          "dataset": {
+            "referenceName": "EnrichedArticlesDataset",
+            "type": "DatasetReference"
+          },
+          "fieldList": [
+            "childItems"
+          ],
+          "storeSettings": {
+            "type": "AzureBlobFSReadSettings",
+            "recursive": false
+          }
+        }
+      },
+      {
+        "name": "HandleEmptySilverLayer",
+        "description": "Stop processing when the silver layer contains no articles",
+        "type": "IfCondition",
+        "dependsOn": [
+          {
+            "activity": "ValidateSilverData",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "expression": {
+            "value": "@equals(length(activity('ValidateSilverData').output.childItems), 0)",
+            "type": "Expression"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "StopForEmptySilverData",
+              "type": "Fail",
+              "typeProperties": {
+                "message": "Silver container is empty — gold aggregation was not started",
+                "errorCode": "SILVER_EMPTY"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "GenerateGoldAnalytics",
+        "description": "Run the Databricks notebook to calculate sentiment trends, top entities, and trending keywords",
+        "type": "DatabricksNotebook",
+        "dependsOn": [
+          {
+            "activity": "HandleEmptySilverLayer",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "policy": {
+          "timeout": "0.02:00:00",
+          "retry": 1,
+          "retryIntervalInSeconds": 300
+        },
+        "linkedServiceName": {
+          "referenceName": "DatabricksLinkedService",
+          "type": "LinkedServiceReference"
+        },
+        "typeProperties": {
+          "notebookPath": "/Shared/nlp-pipeline/gold_aggregation",
+          "baseParameters": {
+            "run_date": {
+              "value": "@formatDateTime(adddays(utcNow(), -1), 'yyyy-MM-dd')",
+              "type": "Expression"
+            },
+            "silver_root": {
+              "value": "@pipeline().parameters.silverRoot",
+              "type": "Expression"
+            },
+            "gold_root": {
+              "value": "@pipeline().parameters.goldRoot",
+              "type": "Expression"
+            },
+            "lookback_days": "7",
+            "keyword_window": "3",
+            "categories": {
+              "value": "@pipeline().parameters.ingestCategories",
+              "type": "Expression"
+            }
+          }
+        }
+      },
+      {
+        "name": "UpdateSearchIndex",
+        "description": "Send the previous day's silver documents to Azure AI Search through the index refresh function",
+        "type": "WebActivity",
+        "dependsOn": [
+          {
+            "activity": "GenerateGoldAnalytics",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "policy": {
+          "timeout": "0.00:30:00",
+          "retry": 2,
+          "retryIntervalInSeconds": 60
+        },
+        "typeProperties": {
+          "url": {
+            "value": "@concat(pipeline().parameters.indexRefreshUrl, '?code=', pipeline().parameters.indexRefreshKey)",
+            "type": "Expression"
+          },
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "value": "@concat('{\"date\":\"', formatDateTime(adddays(utcNow(),-1),'yyyy-MM-dd'), '\"}')",
+            "type": "Expression"
+          },
+          "authentication": {
+            "type": "Anonymous"
+          }
+        }
+      },
+      {
+        "name": "ValidateSearchRefresh",
+        "description": "Check whether the search index refresh returned an error status",
+        "type": "IfCondition",
+        "dependsOn": [
+          {
+            "activity": "UpdateSearchIndex",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "expression": {
+            "value": "@greaterOrEquals(activity('UpdateSearchIndex').output.statusCode, 400)",
+            "type": "Expression"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "StopOnSearchError",
+              "type": "Fail",
+              "typeProperties": {
+                "message": {
+                  "value": "@concat('Index refresh failed with status: ', string(activity('UpdateSearchIndex').output.statusCode))",
+                  "type": "Expression"
+                },
+                "errorCode": "INDEX_REFRESH_FAILED"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "parameters": {
+      "silverRoot": {
+        "type": "string",
+        "defaultValue": "abfss://articles-silver@<account>.dfs.core.windows.net"
+      },
+      "goldRoot": {
+        "type": "string",
+        "defaultValue": "abfss://articles-gold@<account>.dfs.core.windows.net"
+      },
+      "indexRefreshUrl": {
+        "type": "string",
+        "defaultValue": "https://<fn-app>.azurewebsites.net/api/fn-index-refresh"
+      },
+      "indexRefreshKey": {
+        "type": "string",
+        "defaultValue": ""
+      },
+      "ingestCategories": {
+        "type": "string",
+        "defaultValue": "technology,business,science,health"
+      }
+    },
+    "annotations": [
+      "news-nlp",
+      "nightly-batch",
+      "gold-layer"
+    ],
+    "policy": {
+      "elapsedTimeMetric": {
+        "duration": "0.03:00:00"
+      }
+    }
+  }
+}

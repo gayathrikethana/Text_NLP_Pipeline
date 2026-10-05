@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Environment variables and local secrets
+.env
+local.settings.json
+
+# Logs
+*.log
+
+# Test coverage
+coverage/
+
+# Build output
+dist/
+
+# macOS
+.DS_Store
+
+# Azure Storage Emulator / Azurite
+.azurite/
+__azurite_db*.json
+azurite*.log

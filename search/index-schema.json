@@ -1,0 +1,223 @@
+{
+  "name": "articles",
+  "fields": [
+    {
+      "name": "id",
+      "type": "Edm.String",
+      "key": true,
+      "searchable": false,
+      "filterable": true,
+      "retrievable": true,
+      "sortable": false,
+      "facetable": false,
+      "comment": "URL hash used as the document key for idempotent mergeOrUpload operations."
+    },
+    {
+      "name": "url",
+      "type": "Edm.String",
+      "key": false,
+      "searchable": false,
+      "filterable": false,
+      "retrievable": true,
+      "sortable": false,
+      "facetable": false,
+      "comment": "Original article URL retained for retrieval. Full article text is stored in ADLS."
+    },
+    {
+      "name": "title",
+      "type": "Edm.String",
+      "key": false,
+      "searchable": true,
+      "filterable": false,
+      "retrievable": true,
+      "sortable": false,
+      "facetable": false,
+      "analyzer": "en.microsoft",
+      "comment": "Article title indexed with the Microsoft English analyzer for stemming, stop-word handling, and contractions."
+    },
+    {
+      "name": "body_snippet",
+      "type": "Edm.String",
+      "key": false,
+      "searchable": true,
+      "filterable": false,
+      "retrievable": true,
+      "sortable": false,
+      "facetable": false,
+      "analyzer": "en.microsoft",
+      "comment": "First 500 characters of article content. The complete article text remains in ADLS."
+    },
+    {
+      "name": "source",
+      "type": "Edm.String",
+      "key": false,
+      "searchable": false,
+      "filterable": true,
+      "retrievable": true,
+      "sortable": false,
+      "facetable": true,
+      "comment": "News provider name. Supports filtering and source-based facets."
+    },
+    {
+      "name": "category",
+      "type": "Edm.String",
+      "key": false,
+      "searchable": false,
+      "filterable": true,
+      "retrievable": true,
+      "sortable": false,
+      "facetable": true,
+      "comment": "NewsAPI category such as technology, business, science, or health."
+    },
+    {
+      "name": "published_at",
+      "type": "Edm.DateTimeOffset",
+      "key": false,
+      "searchable": false,
+      "filterable": true,
+      "retrievable": true,
+      "sortable": true,
+      "facetable": false,
+      "comment": "Article publication timestamp used for date filtering and recency-based sorting."
+    },
+    {
+      "name": "sentiment_label",
+      "type": "Edm.String",
+      "key": false,
+      "searchable": false,
+      "filterable": true,
+      "retrievable": true,
+      "sortable": false,
+      "facetable": true,
+      "comment": "Sentiment classification: positive, negative, neutral, or mixed."
+    },
+    {
+      "name": "sentiment_score_positive",
+      "type": "Edm.Double",
+      "key": false,
+      "searchable": false,
+      "filterable": true,
+      "retrievable": true,
+      "sortable": true,
+      "facetable": false,
+      "comment": "Positive sentiment confidence score from 0.0 to 1.0 returned by Azure Language."
+    },
+    {
+      "name": "entities",
+      "type": "Collection(Edm.String)",
+      "key": false,
+      "searchable": true,
+      "filterable": true,
+      "retrievable": true,
+      "sortable": false,
+      "facetable": false,
+      "analyzer": "en.microsoft",
+      "comment": "Flattened entity names extracted from the article, such as organizations, people, and locations."
+    },
+    {
+      "name": "key_phrases",
+      "type": "Collection(Edm.String)",
+      "key": false,
+      "searchable": true,
+      "filterable": false,
+      "retrievable": true,
+      "sortable": false,
+      "facetable": false,
+      "analyzer": "en.microsoft",
+      "comment": "Important phrases extracted by Azure Language and indexed for keyword-based retrieval."
+    },
+    {
+      "name": "content_vector",
+      "type": "Collection(Edm.Single)",
+      "key": false,
+      "searchable": false,
+      "filterable": false,
+      "retrievable": false,
+      "sortable": false,
+      "facetable": false,
+      "dimensions": 1536,
+      "vectorSearchProfile": "hnsw-cosine-profile",
+      "comment": "1536-dimensional text-embedding-ada-002 vector. Kept non-retrievable because vectors are not returned to API clients."
+    }
+  ],
+  "vectorSearch": {
+    "algorithms": [
+      {
+        "name": "hnsw-config",
+        "kind": "hnsw",
+        "parameters": {
+          "m": 4,
+          "efConstruction": 400,
+          "efSearch": 500,
+          "metric": "cosine"
+        },
+        "comment": "HNSW configuration using cosine similarity. m controls graph connectivity, while efConstruction and efSearch control build and query quality."
+      }
+    ],
+    "profiles": [
+      {
+        "name": "hnsw-cosine-profile",
+        "algorithm": "hnsw-config"
+      }
+    ]
+  },
+  "semantic": {
+    "configurations": [
+      {
+        "name": "semantic-config",
+        "prioritizedFields": {
+          "titleField": {
+            "fieldName": "title"
+          },
+          "contentFields": [
+            {
+              "fieldName": "body_snippet"
+            }
+          ],
+          "keywordsFields": [
+            {
+              "fieldName": "key_phrases"
+            },
+            {
+              "fieldName": "entities"
+            }
+          ]
+        },
+        "comment": "Semantic ranking re-scores the retrieved results using title, body, key phrases, and entities as contextual signals."
+      }
+    ]
+  },
+  "scoringProfiles": [
+    {
+      "name": "recency-boost",
+      "text": {
+        "weights": {
+          "title": 3,
+          "body_snippet": 1,
+          "key_phrases": 2,
+          "entities": 2
+        }
+      },
+      "functions": [
+        {
+          "type": "freshness",
+          "fieldName": "published_at",
+          "boost": 2,
+          "freshness": {
+            "boostingDuration": "P7D"
+          },
+          "interpolation": "logarithmic",
+          "comment": "Recent articles receive a higher relevance score, with the boost decaying logarithmically over seven days."
+        }
+      ],
+      "functionAggregation": "sum"
+    }
+  ],
+  "corsOptions": {
+    "allowedOrigins": [
+      "https://<your-apim-name>.azure-api.net"
+    ],
+    "maxAgeInSeconds": 300,
+    "comment": "CORS is restricted to the APIM gateway domain. Replace the placeholder with the deployed APIM hostname."
+  }
+}

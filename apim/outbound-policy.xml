@@ -1,0 +1,81 @@
+<policies>
+  <inbound>
+    <base />
+
+    <!--
+      Check APIM cache before forwarding the search request.
+      The cache varies according to the parameters that affect search results.
+    -->
+    <cache-lookup
+      vary-by-developer="false"
+      vary-by-developer-groups="false"
+      allow-private-response-caching="false"
+      must-revalidate="false"
+      downstream-caching-type="none">
+
+      <vary-by-query-parameter>q</vary-by-query-parameter>
+      <vary-by-query-parameter>top</vary-by-query-parameter>
+      <vary-by-query-parameter>category</vary-by-query-parameter>
+      <vary-by-query-parameter>source</vary-by-query-parameter>
+      <vary-by-query-parameter>sentiment</vary-by-query-parameter>
+      <vary-by-query-parameter>semantic</vary-by-query-parameter>
+      <vary-by-query-parameter>vector</vary-by-query-parameter>
+      <vary-by-query-parameter>from</vary-by-query-parameter>
+      <vary-by-query-parameter>to</vary-by-query-parameter>
+
+    </cache-lookup>
+  </inbound>
+
+  <backend>
+    <base />
+  </backend>
+
+  <outbound>
+    <base />
+
+    <!--
+      Keep successful search results available for one minute.
+      Short-lived caching of unsuccessful responses reduces repeated
+      requests to an unhealthy backend.
+    -->
+    <choose>
+
+      <when condition="@(context.Response.StatusCode == 200)">
+        <cache-store duration="60" />
+      </when>
+
+      <when condition="@(context.Response.StatusCode == 400)">
+        <cache-store duration="5" />
+      </when>
+
+      <otherwise>
+        <cache-store duration="5" />
+      </otherwise>
+
+    </choose>
+
+    <!--
+      Expose whether the response was served from the APIM cache.
+    -->
+    <set-header name="X-Cache" exists-action="override">
+      <value>@(
+        context.Variables.ContainsKey("isCacheHit")
+        && (bool)context.Variables["isCacheHit"]
+        ? "HIT"
+        : "MISS"
+      )</value>
+    </set-header>
+
+    <!--
+      Permit browser-based clients to access the search endpoint.
+    -->
+    <set-header name="Access-Control-Allow-Origin" exists-action="override">
+      <value>*</value>
+    </set-header>
+
+  </outbound>
+
+  <on-error>
+    <base />
+  </on-error>
+</policies>

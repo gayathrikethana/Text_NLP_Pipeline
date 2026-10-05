@@ -1,0 +1,9 @@
+{
+  "name": "azure-news-nlp-pipeline",
+  "version": "1.0.0",
+  "description": "Azure-based News NLP pipeline for ingestion, enrichment, and semantic search",
+  "private": true,
+  "workspaces": [
+    "functions"
+  ]
+}

@@ -1,0 +1,365 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+
+  "parameters": {
+    "newsApiKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "NewsAPI.org API key. Provide the raw key without a prefix."
+      }
+    },
+
+    "storageAccountName": {
+      "type": "string",
+      "metadata": {
+        "description": "Storage account name used to construct the Blob Storage endpoint."
+      }
+    },
+
+    "bronzeContainer": {
+      "type": "string",
+      "defaultValue": "articles-bronze",
+      "metadata": {
+        "description": "Container used for raw article JSON files."
+      }
+    },
+
+    "ingestCategories": {
+      "type": "string",
+      "defaultValue": "technology,business,science,health",
+      "metadata": {
+        "description": "Comma-separated NewsAPI categories."
+      }
+    },
+
+    "hashFunctionUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "URL of the fn-hash-url Azure Function."
+      }
+    },
+
+    "hashFunctionKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Function key used to invoke fn-hash-url."
+      }
+    }
+  },
+
+  "triggers": {
+    "Every_6_hours": {
+      "type": "Recurrence",
+      "recurrence": {
+        "frequency": "Hour",
+        "interval": 6,
+        "startTime": "2024-01-01T00:00:00Z",
+        "timeZone": "UTC"
+      },
+      "metadata": {
+        "comment": "Runs four times per day at six-hour intervals."
+      }
+    }
+  },
+
+  "actions": {
+    "Parse_categories": {
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "categories",
+            "type": "array",
+            "value": "@split(parameters('ingestCategories'), ',')"
+          }
+        ]
+      },
+      "runAfter": {}
+    },
+
+    "Init_currentCategory": {
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "currentCategory",
+            "type": "string",
+            "value": ""
+          }
+        ]
+      },
+      "runAfter": {
+        "Parse_categories": [
+          "Succeeded"
+        ]
+      }
+    },
+
+    "Init_urlHash": {
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "urlHash",
+            "type": "string",
+            "value": ""
+          }
+        ]
+      },
+      "runAfter": {
+        "Init_currentCategory": [
+          "Succeeded"
+        ]
+      }
+    },
+
+    "Init_blobPath": {
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "blobPath",
+            "type": "string",
+            "value": ""
+          }
+        ]
+      },
+      "runAfter": {
+        "Init_urlHash": [
+          "Succeeded"
+        ]
+      }
+    },
+
+    "For_each_category": {
+      "type": "Foreach",
+      "foreach": "@variables('categories')",
+
+      "actions": {
+        "Set_currentCategory": {
+          "type": "SetVariable",
+          "inputs": {
+            "name": "currentCategory",
+            "value": "@trim(item())"
+          },
+          "runAfter": {}
+        },
+
+        "Call_NewsAPI_top_headlines": {
+          "type": "Http",
+          "inputs": {
+            "method": "GET",
+            "uri": "https://newsapi.org/v2/top-headlines",
+            "queries": {
+              "category": "@variables('currentCategory')",
+              "language": "en",
+              "pageSize": "100",
+              "page": "1"
+            },
+            "headers": {
+              "X-Api-Key": "@parameters('newsApiKey')"
+            },
+            "retryPolicy": {
+              "type": "exponential",
+              "count": 3,
+              "interval": "PT10S",
+              "minimumInterval": "PT10S",
+              "maximumInterval": "PT60S"
+            }
+          },
+          "runAfter": {
+            "Set_currentCategory": [
+              "Succeeded"
+            ]
+          }
+        },
+
+        "Check_API_status": {
+          "type": "If",
+          "expression": {
+            "and": [
+              {
+                "equals": [
+                  "@body('Call_NewsAPI_top_headlines')?['status']",
+                  "ok"
+                ]
+              }
+            ]
+          },
+
+          "actions": {
+            "For_each_article": {
+              "type": "Foreach",
+              "foreach": "@body('Call_NewsAPI_top_headlines')?['articles']",
+
+              "actions": {
+                "Skip_if_no_url": {
+                  "type": "If",
+
+                  "expression": {
+                    "and": [
+                      {
+                        "not": {
+                          "equals": [
+                            "@item()?['url']",
+                            null
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "equals": [
+                            "@item()?['url']",
+                            ""
+                          ]
+                        }
+                      }
+                    ]
+                  },
+
+                  "actions": {
+                    "Compute_url_hash": {
+                      "type": "Http",
+                      "inputs": {
+                        "method": "POST",
+                        "uri": "@{parameters('hashFunctionUrl')}?code=@{parameters('hashFunctionKey')}",
+                        "headers": {
+                          "Content-Type": "application/json"
+                        },
+                        "body": {
+                          "url": "@{item()?['url']}"
+                        },
+                        "retryPolicy": {
+                          "type": "exponential",
+                          "count": 3,
+                          "interval": "PT5S"
+                        }
+                      },
+                      "runAfter": {}
+                    },
+
+                    "Set_urlHash": {
+                      "type": "SetVariable",
+                      "inputs": {
+                        "name": "urlHash",
+                        "value": "@{body('Compute_url_hash')?['urlHash']}"
+                      },
+                      "runAfter": {
+                        "Compute_url_hash": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+
+                    "Set_blobPath": {
+                      "type": "SetVariable",
+                      "inputs": {
+                        "name": "blobPath",
+                        "value": "@{variables('currentCategory')}/@{utcNow('yyyy-MM-dd')}/@{variables('urlHash')}.json"
+                      },
+                      "runAfter": {
+                        "Set_urlHash": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+
+                    "Write_article_blob": {
+                      "type": "Http",
+                      "inputs": {
+                        "method": "PUT",
+                        "uri": "https://@{parameters('storageAccountName')}.blob.core.windows.net/@{parameters('bronzeContainer')}/@{variables('blobPath')}",
+                        "headers": {
+                          "x-ms-blob-type": "BlockBlob",
+                          "Content-Type": "application/json",
+                          "x-ms-version": "2020-04-08"
+                        },
+                        "body": "@item()",
+                        "authentication": {
+                          "type": "ManagedServiceIdentity"
+                        },
+                        "retryPolicy": {
+                          "type": "exponential",
+                          "count": 3,
+                          "interval": "PT5S"
+                        }
+                      },
+                      "runAfter": {
+                        "Set_blobPath": [
+                          "Succeeded"
+                        ]
+                      },
+                      "metadata": {
+                        "comment": "Uses the Logic App managed identity to write directly to Blob Storage."
+                      }
+                    }
+                  },
+
+                  "else": {
+                    "actions": {
+                      "Log_missing_url": {
+                        "type": "Compose",
+                        "inputs": {
+                          "level": "warning",
+                          "message": "Article skipped because no URL was provided.",
+                          "title": "@item()?['title']",
+                          "category": "@variables('currentCategory')"
+                        }
+                      }
+                    }
+                  },
+
+                  "runAfter": {}
+                }
+              },
+
+              "runtimeConfiguration": {
+                "concurrency": {
+                  "repetitions": 1
+                },
+                "comment": "Process articles sequentially because workflow-scoped variables are reassigned for each article."
+              }
+            }
+          },
+
+          "else": {
+            "actions": {
+              "Log_API_error": {
+                "type": "Compose",
+                "inputs": {
+                  "level": "error",
+                  "message": "NewsAPI returned an unsuccessful response.",
+                  "code": "@body('Call_NewsAPI_top_headlines')?['code']",
+                  "apiMessage": "@body('Call_NewsAPI_top_headlines')?['message']",
+                  "category": "@variables('currentCategory')",
+                  "httpStatus": "@outputs('Call_NewsAPI_top_headlines')['statusCode']"
+                }
+              }
+            }
+          },
+
+          "runAfter": {
+            "Call_NewsAPI_top_headlines": [
+              "Succeeded",
+              "Failed"
+            ]
+          }
+        }
+      },
+
+      "runtimeConfiguration": {
+        "concurrency": {
+          "repetitions": 1
+        },
+        "comment": "Categories are processed sequentially to avoid concurrent updates to workflow-scoped variables."
+      },
+
+      "runAfter": {
+        "Init_blobPath": [
+          "Succeeded"
+        ]
+      }
+    }
+  }
+}

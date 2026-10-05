@@ -1,0 +1,80 @@
+<policies>
+  <inbound>
+    <base />
+
+    <!--
+      Apply a per-subscription request quota.
+      Requests beyond the configured limit receive a 429 response.
+      The remaining quota is exposed through a response header.
+    -->
+    <rate-limit-by-key
+      calls="100"
+      renewal-period="60"
+      counter-key="@(context.Subscription.Id)"
+      increment-condition="@(context.Response.StatusCode != 429)"
+      remaining-calls-header-name="X-RateLimit-Remaining"
+      retry-after-header-name="Retry-After" />
+
+    <!--
+      Validate the caller's OAuth 2.0 Bearer token issued by
+      Microsoft Entra ID before the request reaches the backend.
+      
+      Replace the tenant and application identifiers with the
+      values belonging to this API.
+    -->
+    <validate-jwt
+      header-name="Authorization"
+      failed-validation-httpcode="401"
+      failed-validation-error-message="Unauthorized: valid Bearer token required"
+      require-expiration-time="true"
+      require-scheme="Bearer"
+      require-signed-tokens="true">
+
+      <openid-config
+        url="https://login.microsoftonline.com/<YOUR_TENANT_ID>/v2.0/.well-known/openid-configuration" />
+
+      <audiences>
+        <audience>api://<YOUR_API_APP_ID_URI></audience>
+      </audiences>
+
+      <issuers>
+        <issuer>https://sts.windows.net/<YOUR_TENANT_ID>/</issuer>
+        <issuer>https://login.microsoftonline.com/<YOUR_TENANT_ID>/v2.0</issuer>
+      </issuers>
+    </validate-jwt>
+
+    <!--
+      Pass the authenticated user's object identifier to the
+      backend for optional auditing and request tracing.
+    -->
+    <set-header name="X-Caller-Object-Id" exists-action="override">
+      <value>@(
+        context.Request.Headers
+          .GetValueOrDefault("Authorization", "")
+          .Split(' ')
+          .LastOrDefault()
+          .AsJwt()
+          ?.Claims.GetValueOrDefault("oid", "unknown")
+      )</value>
+    </set-header>
+
+    <!--
+      Remove the original Bearer token before forwarding the
+      request to the anonymous Azure Function backend.
+    -->
+    <set-header name="Authorization" exists-action="delete" />
+
+  </inbound>
+
+  <backend>
+    <base />
+  </backend>
+
+  <outbound>
+    <base />
+  </outbound>
+
+  <on-error>
+    <base />
+  </on-error>
+</policies>

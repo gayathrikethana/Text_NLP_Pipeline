@@ -1,0 +1,180 @@
+{
+  "scans": [
+    {
+      "name": "scan-bronze-silver",
+      "friendlyName": "Bronze + Silver ADLS Scan",
+      "description": "Scans the raw bronze and enriched silver article containers and applies the configured PII classification rules.",
+      "dataSourceName": "nlp-pipeline-adls",
+      "dataSourceType": "AzureDataLakeStorageGen2",
+      "scanRuleSet": {
+        "type": "Custom",
+        "name": "nlp-pipeline-scan-ruleset",
+        "classificationRules": [
+          "NLP_Pipeline_PII_Article",
+          "NLP_Pipeline_Person_Entity",
+          "NLP_Pipeline_Phone_Pattern",
+          "NLP_Pipeline_Email_Pattern"
+        ],
+        "builtInClassificationRules": [
+          "MICROSOFT.PERSONAL.NAME",
+          "MICROSOFT.PERSONAL.EMAIL",
+          "MICROSOFT.PERSONAL.PHONENUMBER"
+        ]
+      },
+      "scope": [
+        "/subscriptions/<subscription-id>/resourceGroups/<rg>/providers/Microsoft.Storage/storageAccounts/<account>/blobServices/default/containers/articles-bronze",
+        "/subscriptions/<subscription-id>/resourceGroups/<rg>/providers/Microsoft.Storage/storageAccounts/<account>/blobServices/default/containers/articles-silver"
+      ],
+      "scanSettings": {
+        "fileExtensions": [
+          ".json"
+        ],
+        "maximumMemoryAllowedInGb": 4,
+        "dataMapPopulation": true
+      },
+      "trigger": {
+        "type": "Schedule",
+        "recurrence": {
+          "frequency": "Day",
+          "interval": 1,
+          "startTime": "2024-01-01T03:30:00Z",
+          "comment": "Runs after the nightly ADF pipeline so the silver layer is available for scanning."
+        }
+      }
+    },
+
+    {
+      "name": "scan-gold",
+      "friendlyName": "Gold ADLS Scan",
+      "description": "Scans the aggregated gold outputs, including sentiment trends, top entities, and trending keywords.",
+      "dataSourceName": "nlp-pipeline-adls",
+      "dataSourceType": "AzureDataLakeStorageGen2",
+      "scanRuleSet": {
+        "type": "System",
+        "name": "AdlsGen2",
+        "classificationRules": [],
+        "builtInClassificationRules": []
+      },
+      "scope": [
+        "/subscriptions/<subscription-id>/resourceGroups/<rg>/providers/Microsoft.Storage/storageAccounts/<account>/blobServices/default/containers/articles-gold"
+      ],
+      "scanSettings": {
+        "fileExtensions": [
+          ".json"
+        ],
+        "dataMapPopulation": true
+      },
+      "trigger": {
+        "type": "Schedule",
+        "recurrence": {
+          "frequency": "Day",
+          "interval": 1,
+          "startTime": "2024-01-01T04:00:00Z"
+        }
+      }
+    },
+
+    {
+      "name": "scan-search-index",
+      "friendlyName": "Azure AI Search Index Scan",
+      "description": "Scans the articles index in Azure AI Search and maintains lineage from the silver layer to the search index. PII classification remains focused on the silver layer.",
+      "dataSourceName": "nlp-pipeline-search",
+      "dataSourceType": "AzureCognitiveSearch",
+      "scanRuleSet": {
+        "type": "System",
+        "name": "AzureCognitiveSearch",
+        "classificationRules": [],
+        "builtInClassificationRules": [
+          "MICROSOFT.PERSONAL.EMAIL"
+        ]
+      },
+      "scope": [
+        "/subscriptions/<subscription-id>/resourceGroups/<rg>/providers/Microsoft.Search/searchServices/<search-service>/indexes/articles"
+      ],
+      "scanSettings": {
+        "dataMapPopulation": true
+      },
+      "trigger": {
+        "type": "Schedule",
+        "recurrence": {
+          "frequency": "Week",
+          "interval": 1,
+          "startTime": "2024-01-01T04:30:00Z",
+          "comment": "Weekly scanning is used for the Search index because the index structure and lineage change less frequently than the article data."
+        }
+      }
+    },
+
+    {
+      "name": "scan-audit-table",
+      "friendlyName": "Audit Table Storage Scan",
+      "description": "Scans the articleAudit and articleDedup tables used for audit records and article deduplication.",
+      "dataSourceName": "nlp-pipeline-storage",
+      "dataSourceType": "AzureTableStorage",
+      "scanRuleSet": {
+        "type": "System",
+        "name": "AzureTableStorage",
+        "classificationRules": [],
+        "builtInClassificationRules": []
+      },
+      "scope": [
+        "/subscriptions/<subscription-id>/resourceGroups/<rg>/providers/Microsoft.Storage/storageAccounts/<account>/tableServices/default/tables/articleAudit",
+        "/subscriptions/<subscription-id>/resourceGroups/<rg>/providers/Microsoft.Storage/storageAccounts/<account>/tableServices/default/tables/articleDedup"
+      ],
+      "scanSettings": {
+        "dataMapPopulation": true
+      },
+      "trigger": {
+        "type": "Schedule",
+        "recurrence": {
+          "frequency": "Week",
+          "interval": 1,
+          "startTime": "2024-01-01T05:00:00Z"
+        }
+      }
+    }
+  ],
+
+  "dataSources": [
+    {
+      "name": "nlp-pipeline-adls",
+      "kind": "AzureDataLakeStorageGen2",
+      "properties": {
+        "endpoint": "https://<account>.dfs.core.windows.net/",
+        "resourceGroup": "<rg>",
+        "subscriptionId": "<subscription-id>",
+        "location": "<region>"
+      }
+    },
+
+    {
+      "name": "nlp-pipeline-search",
+      "kind": "AzureCognitiveSearch",
+      "properties": {
+        "endpoint": "https://<search-service>.search.windows.net/",
+        "resourceGroup": "<rg>",
+        "subscriptionId": "<subscription-id>",
+        "location": "<region>"
+      }
+    },
+
+    {
+      "name": "nlp-pipeline-storage",
+      "kind": "AzureStorage",
+      "properties": {
+        "endpoint": "https://<account>.blob.core.windows.net/",
+        "resourceGroup": "<rg>",
+        "subscriptionId": "<subscription-id>",
+        "location": "<region>"
+      }
+    }
+  ],
+
+  "deploymentNotes": {
+    "howToRegisterDataSources": "Register the required sources through Microsoft Purview Data Map or the corresponding REST API.",
+    "howToCreateScans": "After registering a source, create its scan through Data Map → Sources → selected source → New Scan or through the Purview REST API.",
+    "managedIdentity": "Grant the Purview managed identity Storage Blob Data Reader access on the storage account and Search Index Data Reader access on the Azure AI Search service.",
+    "adfLineage": "ADF lineage is expected to be detected automatically by Purview when the relevant resources are configured within the same subscription.",
+    "customFunctionLineage": "The fn-enrich bronze-to-silver relationship requires manual lineage registration using scripts/register-purview-lineage.js."
+  }
+}

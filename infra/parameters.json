@@ -1,0 +1,120 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "eastus",
+      "comment": "Azure deployment region."
+    },
+
+    "storageAccountName": {
+      "value": "nlppipelinestore",
+      "comment": "Globally unique storage account name using 3-24 lowercase alphanumeric characters."
+    },
+
+    "languageAccountName": {
+      "value": "nlp-pipeline-language",
+      "comment": "Azure AI Language resource name."
+    },
+
+    "openAiAccountName": {
+      "value": "nlp-pipeline-openai",
+      "comment": "Azure OpenAI resource name. Availability depends on subscription and region."
+    },
+
+    "embeddingDeploymentName": {
+      "value": "text-embedding-ada-002",
+      "comment": "Azure OpenAI embedding deployment name used by the Functions application."
+    },
+
+    "functionAppName": {
+      "value": "nlp-pipeline-functions",
+      "comment": "Globally unique Azure Function App name."
+    },
+
+    "searchServiceName": {
+      "value": "nlp-pipeline-search",
+      "comment": "Globally unique Azure AI Search service name."
+    },
+
+    "skuName": {
+      "value": "basic",
+      "comment": "Azure AI Search pricing tier."
+    },
+
+    "replicaCount": {
+      "value": 1,
+      "comment": "Number of Azure AI Search replicas."
+    },
+
+    "partitionCount": {
+      "value": 1,
+      "comment": "Number of Azure AI Search partitions."
+    },
+
+    "workspaceName": {
+      "value": "nlp-pipeline-databricks",
+      "comment": "Azure Databricks workspace name."
+    },
+
+    "pricingTier": {
+      "value": "standard",
+      "comment": "Azure Databricks pricing tier."
+    },
+
+    "logicAppName": {
+      "value": "nlp-pipeline-ingestor",
+      "comment": "Logic App name used for scheduled NewsAPI ingestion."
+    },
+
+    "apimName": {
+      "value": "nlp-pipeline-apim",
+      "comment": "Globally unique Azure API Management instance name."
+    },
+
+    "publisherEmail": {
+      "value": "<your-email@domain.com>",
+      "comment": "Replace with the email address used for the APIM publisher profile."
+    },
+
+    "publisherName": {
+      "value": "NLP Pipeline Team",
+      "comment": "Publisher or organization name displayed by API Management."
+    },
+
+    "purviewAccountName": {
+      "value": "nlp-pipeline-purview",
+      "comment": "Globally unique Microsoft Purview account name."
+    },
+
+    "ingestCategories": {
+      "value": "technology,business,science,health",
+      "comment": "Comma-separated NewsAPI categories consumed by the ingestion workflow."
+    },
+
+    "tenantId": {
+      "value": "<your-azure-ad-tenant-id>",
+      "comment": "Azure Entra ID tenant ID used by the APIM JWT validation policy."
+    },
+
+    "apiAppIdUri": {
+      "value": "api://<your-api-app-registration-id>",
+      "comment": "Application ID URI used as the expected JWT audience by APIM."
+    },
+
+    "bronzeContainerName": {
+      "value": "articles-bronze",
+      "comment": "Bronze storage container used for raw NewsAPI article data."
+    },
+
+    "searchIndexName": {
+      "value": "articles",
+      "comment": "Azure AI Search index name used by the Functions application."
+    },
+
+    "secretsComment": {
+      "value": "SECRETS NOT STORED IN THIS FILE",
+      "comment": "Secure values should be supplied during deployment or through an appropriate secret-management mechanism. Do not commit API keys or connection strings to source control."
+    }
+  }
+}
